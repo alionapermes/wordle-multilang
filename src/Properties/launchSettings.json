@@ -23,6 +23,7 @@
       "commandName": "IISExpress",
       "launchBrowser": true,
       "launchUrl": "swagger",
+      "applicationUrl": "http://wordle.kheynov.ru",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
