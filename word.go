@@ -4,11 +4,11 @@ type WordOfDay struct {
 	Id   int64  `json:"id"`
 	Text string `json:"text"`
 	Lang string `json:"lang"`
-	Day  string `json:"day"`
+	Next int64  `json:"next"`
 }
 
 type Payload struct {
-	Text string `json:"text"`
+	Word string `json:"word"`
 	Lang string `json:"lang"`
-	next int64  `json:"next"`
+	Next int64  `json:"next"`
 }

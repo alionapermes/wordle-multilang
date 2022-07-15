@@ -2,8 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"math/rand"
 	"net/http"
-	"time"
+	"os"
 
 	"fmt"
 
@@ -11,89 +12,133 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+
+	"github.com/golang-module/carbon/v2"
 )
 
 type Server struct {
-	db *sql.DB
-	e  *echo.Echo
+	Token string
+	db    *sql.DB
+	e     *echo.Echo
 }
 
-func (s *Server) Run(port uint32) {
+func (s *Server) Run(port string) {
 	db, _ := sql.Open("sqlite3", "words.db")
 	s.db = db
 	s.e = echo.New()
 	defer s.db.Close()
 
-	s.e.GET("/word", s.handler)
+	s.e.GET("/word", s.getWord)
+	s.e.GET("/check", s.checkWord)
 
 	s.e.Use(middleware.Logger())
 	s.e.Use(middleware.Recover())
 
-	s.e.Start(fmt.Sprintf(":%d", port))
+	s.e.Start(port)
 }
 
 func main() {
-	s := Server{}
-	s.Run(1234)
+	s := Server{Token: os.Getenv("WORDLE_TOKEN")}
+	fmt.Println("token:", s.Token)
+	s.Run(":" + os.Getenv("WORDLE_PORT"))
 }
 
-// func (s *Server) getWord(c echo.Context) error {
-// 	row := s.db.QueryRow(
-// 		"select Text from RussianWords where Id = $1",
-// 		rand.Intn(3000),
-// 	)
+func (s *Server) getWord(c echo.Context) error {
+	// token := c.QueryParam("token")
+	// if token != s.Token {
+	// 	return c.NoContent(http.StatusUnauthorized)
+	// }
 
-// 	var word string
-// 	row.Scan(&word)
-// 	return c.String(http.StatusOK, word)
-// }
-
-func (s *Server) handler(c echo.Context) error {
 	lang := c.QueryParam("lang")
-	word := s.sync(lang).getWordOfDay(lang)
+	word := s.syncAndFetch(lang)
 
-	return c.JSON(http.StatusOK, word)
+	return c.JSON(http.StatusOK, Payload{
+		Word: word.Text,
+		Lang: word.Lang,
+		Next: word.Next,
+	})
 }
 
-func (s *Server) sync(lang string) *Server {
-	var wordOfDay = s.getWordOfDay(lang)
+func (s *Server) checkWord(c echo.Context) error {
+	// token := c.QueryParam("token")
+	// if token != s.Token {
+	// 	return c.NoContent(http.StatusUnauthorized)
+	// }
 
-	t, _ := time.Parse("2006-01-02 00:00:00", wordOfDay.Day)
-	wordDate := t.Unix()
-	today := time.Today().Unix()
+	testWord := c.QueryParam("word")
+	trueWord := s.syncAndFetch(c.QueryParam("lang"))
 
-	// if wordDate
+	if trueWord.Text == testWord {
+		return c.NoContent(http.StatusOK)
+	}
 
-	fmt.Println("t:", t.Unix())
-	fmt.Println(wordOfDay)
-
-	return s
+	return c.NoContent(http.StatusBadRequest)
 }
 
-func (s *Server) getWordOfDay(lang string) WordOfDay {
-	var wordOfDay WordOfDay
-	s.db.QueryRow(`
+func (s *Server) syncAndFetch(lang string) WordOfDay {
+	var word, err = s.getWordOfDay(lang)
+
+	now := carbon.Now().Timestamp()
+
+	if (err != nil) || (now >= word.Next) {
+		var text string
+
+		if lang == "en" {
+			text = s.pickWordOfDay("English")
+		} else if lang == "ru" {
+			text = s.pickWordOfDay("Russian")
+		}
+
+		word = WordOfDay{
+			Text: text,
+			Lang: lang,
+			Next: carbon.Tomorrow().Timestamp(),
+		}
+		fmt.Println("after pick:", word)
+
+		s.db.Exec(`
+			insert into
+				History(Word, Lang, Next)
+			values
+				($1, $2, $3)
+		`, word.Text, word.Lang, word.Next)
+	}
+
+	return word
+}
+
+func (s *Server) getWordOfDay(lang string) (WordOfDay, error) {
+	var word WordOfDay
+	err := s.db.QueryRow(`
 		select
 			*
 		from
-			WordOfDayHistory
+			History
 		where
-			Language = $1
+			Lang = $1
 		order by Id desc
 		limit 1
 	`, lang).Scan(
-		&wordOfDay.Id, &wordOfDay.Text, &wordOfDay.Day, &wordOfDay.Lang)
+		&word.Id, &word.Text, &word.Lang, &word.Next)
 
-	return wordOfDay
+	if err != nil {
+		return WordOfDay{}, err
+	}
+
+	return word, nil
 }
 
-func (s *Server) pickWordsOfDay() WordOfDay {
-	var count int
-	s.db.QueryRow("select count(*) from RussianWords").Scan(&count)
+func (s *Server) pickWordOfDay(tablePrefix string) string {
+	tableName := tablePrefix + "Words"
 
-	var word WordOfDay
-	s.db.QueryRow("select * from RussianWords where Id = $1", count).Scan(
-		&word.Id, &word.Text, &word.Lang, &word.Day)
+	var count int
+	s.db.QueryRow("select count(*) from " + tableName).Scan(&count)
+
+	random := rand.Intn(count)
+
+	var word string
+	s.db.QueryRow("select Text from "+tableName+" where Id = $1", random).
+		Scan(&word)
 
 	return word
 }
