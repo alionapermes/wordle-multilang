@@ -29,6 +29,7 @@ func (s *Server) Run(port string) {
 
 	s.e.GET("/word", s.getWord)
 	s.e.GET("/check", s.checkWord)
+	s.e.GET("/reset", s.resetLast)
 
 	s.e.Use(middleware.Logger())
 	s.e.Use(middleware.Recover())
@@ -88,9 +89,38 @@ func (s *Server) checkWord(c echo.Context) error {
 	return c.NoContent(http.StatusBadRequest)
 }
 
-// func (s *Server) resetLast(c echo.Context) {
-//
-// }
+func (s *Server) resetLast(c echo.Context) error {
+	lang := c.QueryParam("lang")
+
+	_, err := s.db.Exec(`
+		delete from
+			History
+		where
+			Id = (
+				select
+					Id
+				from
+					History
+				where
+					Lang = $1
+				order by
+					Id desc
+				limit 1
+			)
+		`, lang)
+
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	word := s.syncAndFetch(lang)
+	return c.JSON(http.StatusOK, Payload{
+		Word: word.Text,
+		Lang: word.Lang,
+		Next: word.Next,
+	})
+}
 
 func (s *Server) syncAndFetch(lang string) WordOfDay {
 	var word, err = s.getWordOfDay(lang)
@@ -109,9 +139,8 @@ func (s *Server) syncAndFetch(lang string) WordOfDay {
 		word = WordOfDay{
 			Text: text,
 			Lang: lang,
-			Next: carbon.Tomorrow().Timestamp(),
+			Next: TrueTomorrow(), //carbon.Tomorrow("GMT+7").Timestamp(),
 		}
-		fmt.Println("after pick:", word)
 
 		s.db.Exec(`
 			insert into
@@ -158,4 +187,10 @@ func (s *Server) pickWordOfDay(tablePrefix string) string {
 		Scan(&word)
 
 	return word
+}
+
+func TrueTomorrow() int64 {
+	tomorrow := carbon.Tomorrow()
+	year, month, day := tomorrow.Date()
+	return carbon.CreateFromDateTime(year, month, day, 0, 0, 0).Timestamp()
 }
