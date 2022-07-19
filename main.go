@@ -17,9 +17,8 @@ import (
 )
 
 type Server struct {
-	Token string
-	db    *sql.DB
-	e     *echo.Echo
+	db *sql.DB
+	e  *echo.Echo
 }
 
 func (s *Server) Run(port string) {
@@ -37,18 +36,18 @@ func (s *Server) Run(port string) {
 	s.e.Start(port)
 }
 
+// @title   Wordle-multilang API
+// @version 0.1.1
+//
+// @contact.name  alionapermes
+// @contact.url   t.me/alionapermes
+// @contact.email alionapermes@gmail.com
 func main() {
-	s := Server{Token: os.Getenv("WORDLE_TOKEN")}
-	fmt.Println("token:", s.Token)
+	var s Server
 	s.Run(":" + os.Getenv("WORDLE_PORT"))
 }
 
 func (s *Server) getWord(c echo.Context) error {
-	// token := c.QueryParam("token")
-	// if token != s.Token {
-	// 	return c.NoContent(http.StatusUnauthorized)
-	// }
-
 	lang := c.QueryParam("lang")
 	word := s.syncAndFetch(lang)
 
@@ -60,20 +59,38 @@ func (s *Server) getWord(c echo.Context) error {
 }
 
 func (s *Server) checkWord(c echo.Context) error {
-	// token := c.QueryParam("token")
-	// if token != s.Token {
-	// 	return c.NoContent(http.StatusUnauthorized)
-	// }
-
 	testWord := c.QueryParam("word")
-	trueWord := s.syncAndFetch(c.QueryParam("lang"))
+	lang := c.QueryParam("lang")
+	var tableName, w string
 
-	if trueWord.Text == testWord {
+	switch lang {
+	case "ru":
+		tableName = "RussianWords"
+	case "en":
+		tableName = "EnglishWords"
+	}
+
+	row := s.db.QueryRow(fmt.Sprintf(`
+		select
+			Text
+		from
+			%s
+		where
+			Text = '%s'
+		limit 1
+	`, tableName, testWord))
+
+	if err := row.Scan(&w); err == nil {
+		fmt.Println(err)
 		return c.NoContent(http.StatusOK)
 	}
 
 	return c.NoContent(http.StatusBadRequest)
 }
+
+// func (s *Server) resetLast(c echo.Context) {
+//
+// }
 
 func (s *Server) syncAndFetch(lang string) WordOfDay {
 	var word, err = s.getWordOfDay(lang)

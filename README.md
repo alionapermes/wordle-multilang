@@ -2,7 +2,6 @@
 
 exports:
 ```
-export WORDLE_TOKEN=<your secret>
 export WORDLE_PORT=<some port>
 ```
 
